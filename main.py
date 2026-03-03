@@ -382,11 +382,37 @@ def _load_next_task():
     speed_pct = max(float(task.get('speed', 30)), 1.0)
     speed     = (speed_pct / 100.0) * MAX_SPEED_DEG_PER_SEC   # deg/sec
 
-    q_target = np.deg2rad([
-        float(task.get('j1', 0)), float(task.get('j2', 0)),
-        float(task.get('j3', 0)), float(task.get('j4', 0)),
-        float(task.get('j5', 0)), float(task.get('j6', 0)),
-    ])
+    # ── Joint target: choose by controlMode ──────────────────────────────
+    if task.get('controlMode') == 'effector' and task.get('x') is not None:
+        # Effector mode: solve IK from tip Cartesian target (mm, deg)
+        T_ee_target = (
+            SE3(float(task['x']) / 1000, float(task['y']) / 1000, float(task['z']) / 1000)
+            * SE3.RPY(np.deg2rad([
+                float(task.get('roll',  0)),
+                float(task.get('pitch', 0)),
+                float(task.get('yaw',   0)),
+            ]))
+            * tip_offset['se3'].inv()
+        )
+        q_sol, ok, *_ = robot.ik_LM(T_ee_target, q0=robot.q, ilimit=500)
+        if not ok:
+            q_sol, ok, *_ = robot.ik_LM(T_ee_target, q0=q_zero, ilimit=1000)
+        if ok:
+            q_target = q_sol
+        else:
+            print("\n[IK] effector mode: IK failed — falling back to joint values")
+            q_target = np.deg2rad([
+                float(task.get('j1', 0)), float(task.get('j2', 0)),
+                float(task.get('j3', 0)), float(task.get('j4', 0)),
+                float(task.get('j5', 0)), float(task.get('j6', 0)),
+            ])
+    else:
+        # Joint mode: use j1–j6 directly
+        q_target = np.deg2rad([
+            float(task.get('j1', 0)), float(task.get('j2', 0)),
+            float(task.get('j3', 0)), float(task.get('j4', 0)),
+            float(task.get('j5', 0)), float(task.get('j6', 0)),
+        ])
     delta_deg = np.abs(np.rad2deg(q_target - robot.q))
     duration  = max(float(np.max(delta_deg)) / speed, 0.05)
 
