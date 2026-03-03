@@ -412,10 +412,10 @@ def _load_next_task():
         dz = cart_end['z'] - cart_start['z']
         cart_dist = float(np.sqrt(dx**2 + dy**2 + dz**2))   # mm
         rot_max   = max(
-            abs(cart_end['roll']  - cart_start['roll']),
-            abs(cart_end['pitch'] - cart_start['pitch']),
-            abs(cart_end['yaw']   - cart_start['yaw']),
-        )   # deg
+            abs((cart_end['roll']  - cart_start['roll']  + 180) % 360 - 180),
+            abs((cart_end['pitch'] - cart_start['pitch'] + 180) % 360 - 180),
+            abs((cart_end['yaw']   - cart_start['yaw']   + 180) % 360 - 180),
+        )   # deg (shortest-path)
         speed_frac = speed_pct / 100.0
         t_trans  = cart_dist / (speed_frac * MAX_CART_SPEED_MM_PER_SEC) if cart_dist > 0.5 else 0.0
         t_rot    = rot_max  / (speed_frac * MAX_SPEED_DEG_PER_SEC)      if rot_max   > 0.1 else 0.0
@@ -490,16 +490,20 @@ def step_trajectory():
         x_i     = cs['x']     + t * (ce['x']     - cs['x'])
         y_i     = cs['y']     + t * (ce['y']     - cs['y'])
         z_i     = cs['z']     + t * (ce['z']     - cs['z'])
-        roll_i  = cs['roll']  + t * (ce['roll']  - cs['roll'])
-        pitch_i = cs['pitch'] + t * (ce['pitch'] - cs['pitch'])
-        yaw_i   = cs['yaw']   + t * (ce['yaw']   - cs['yaw'])
+        # Shortest-path angle interpolation: normalise delta to (−180, +180]
+        d_roll  = (ce['roll']  - cs['roll']  + 180) % 360 - 180
+        d_pitch = (ce['pitch'] - cs['pitch'] + 180) % 360 - 180
+        d_yaw   = (ce['yaw']   - cs['yaw']   + 180) % 360 - 180
+        roll_i  = cs['roll']  + t * d_roll
+        pitch_i = cs['pitch'] + t * d_pitch
+        yaw_i   = cs['yaw']   + t * d_yaw
 
         T_ee_tgt = (
             SE3(x_i/1000, y_i/1000, z_i/1000)
             * SE3.RPY(np.deg2rad([roll_i, pitch_i, yaw_i]))
             * tip_offset['se3'].inv()
         )
-        q_sol, ok, *_ = robot.ik_LM(T_ee_tgt, q0=robot.q, ilimit=300)
+        q_sol, ok, *_ = robot.ik_LM(T_ee_tgt, q0=robot.q, ilimit=500)
         if ok:
             robot.q = q_sol
         q_deg = np.rad2deg(robot.q)
