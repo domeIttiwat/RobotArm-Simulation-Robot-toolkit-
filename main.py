@@ -86,12 +86,16 @@ traj = {
     'elapsed':     0.0,   # virtual elapsed time (speed-multiplier adjusted)
     'last_step_t': 0.0,   # wall-clock time of previous step_trajectory call
     'duration':    0.0,
+    'mode':        'joint',  # 'joint' | 'effector'
+    'cart_start':  None,     # {'x','y','z','roll','pitch','yaw'} tip mm/deg
+    'cart_end':    None,
 }
 
 WS_URL                = "ws://localhost:9090"
 JS_PUBLISH_INTERVAL   = 0.1    # seconds
 last_js_pub_t         = {'t': 0.0}
-MAX_SPEED_DEG_PER_SEC = 90.0   # 100 % speed = 90 deg/sec
+MAX_SPEED_DEG_PER_SEC    = 90.0    # 100 % speed = 90 deg/sec (joint mode)
+MAX_CART_SPEED_MM_PER_SEC = 300.0  # 100 % speed = 300 mm/s  (effector mode)
 
 # ── Robot status codes (rosbridge v2 /robot_status) ───────────
 STATUS_IDLE       = 0   # done / stopped
@@ -382,42 +386,63 @@ def _load_next_task():
     speed_pct = max(float(task.get('speed', 30)), 1.0)
     speed     = (speed_pct / 100.0) * MAX_SPEED_DEG_PER_SEC   # deg/sec
 
-    # ── Joint target: choose by controlMode ──────────────────────────────
     if task.get('controlMode') == 'effector' and task.get('x') is not None:
-        # Effector mode: solve IK from tip Cartesian target (mm, deg)
-        T_ee_target = (
-            SE3(float(task['x']) / 1000, float(task['y']) / 1000, float(task['z']) / 1000)
-            * SE3.RPY(np.deg2rad([
-                float(task.get('roll',  0)),
-                float(task.get('pitch', 0)),
-                float(task.get('yaw',   0)),
-            ]))
-            * tip_offset['se3'].inv()
-        )
-        q_sol, ok, *_ = robot.ik_LM(T_ee_target, q0=robot.q, ilimit=500)
-        if not ok:
-            q_sol, ok, *_ = robot.ik_LM(T_ee_target, q0=q_zero, ilimit=1000)
-        if ok:
-            q_target = q_sol
-        else:
-            print("\n[IK] effector mode: IK failed — falling back to joint values")
-            q_target = np.deg2rad([
-                float(task.get('j1', 0)), float(task.get('j2', 0)),
-                float(task.get('j3', 0)), float(task.get('j4', 0)),
-                float(task.get('j5', 0)), float(task.get('j6', 0)),
-            ])
+        # ── Effector mode: Cartesian-space interpolation ──────────────────────
+        # Read current tip pose as starting point
+        T_tip_now = robot.fkine(robot.q) * tip_offset['se3']
+        tp_now    = T_tip_now.t * 1000
+        rpy_now   = np.rad2deg(T_tip_now.rpy())
+
+        cart_start = {
+            'x': float(tp_now[0]),  'y': float(tp_now[1]),  'z': float(tp_now[2]),
+            'roll': float(rpy_now[0]), 'pitch': float(rpy_now[1]), 'yaw': float(rpy_now[2]),
+        }
+        cart_end = {
+            'x':     float(task['x']),
+            'y':     float(task['y']),
+            'z':     float(task['z']),
+            'roll':  float(task.get('roll',  rpy_now[0])),
+            'pitch': float(task.get('pitch', rpy_now[1])),
+            'yaw':   float(task.get('yaw',   rpy_now[2])),
+        }
+
+        # Duration: max of translational travel time and rotational travel time
+        dx = cart_end['x'] - cart_start['x']
+        dy = cart_end['y'] - cart_start['y']
+        dz = cart_end['z'] - cart_start['z']
+        cart_dist = float(np.sqrt(dx**2 + dy**2 + dz**2))   # mm
+        rot_max   = max(
+            abs(cart_end['roll']  - cart_start['roll']),
+            abs(cart_end['pitch'] - cart_start['pitch']),
+            abs(cart_end['yaw']   - cart_start['yaw']),
+        )   # deg
+        speed_frac = speed_pct / 100.0
+        t_trans  = cart_dist / (speed_frac * MAX_CART_SPEED_MM_PER_SEC) if cart_dist > 0.5 else 0.0
+        t_rot    = rot_max  / (speed_frac * MAX_SPEED_DEG_PER_SEC)      if rot_max   > 0.1 else 0.0
+        duration = max(t_trans, t_rot, 0.05)
+
+        traj['mode']       = 'effector'
+        traj['cart_start'] = cart_start
+        traj['cart_end']   = cart_end
+        traj['q_start']    = robot.q.copy()   # seed for first IK call
+        traj['q_end']      = robot.q.copy()   # unused in effector mode
+
     else:
-        # Joint mode: use j1–j6 directly
+        # ── Joint mode: interpolate j1–j6 directly ───────────────────────────
         q_target = np.deg2rad([
             float(task.get('j1', 0)), float(task.get('j2', 0)),
             float(task.get('j3', 0)), float(task.get('j4', 0)),
             float(task.get('j5', 0)), float(task.get('j6', 0)),
         ])
-    delta_deg = np.abs(np.rad2deg(q_target - robot.q))
-    duration  = max(float(np.max(delta_deg)) / speed, 0.05)
+        delta_deg = np.abs(np.rad2deg(q_target - robot.q))
+        duration  = max(float(np.max(delta_deg)) / speed, 0.05)
 
-    traj['q_start']    = robot.q.copy()
-    traj['q_end']      = q_target
+        traj['mode']       = 'joint'
+        traj['cart_start'] = None
+        traj['cart_end']   = None
+        traj['q_start']    = robot.q.copy()
+        traj['q_end']      = q_target
+
     traj['rail_start'] = sim_rail['v']
     traj['rail_end']   = float(task.get('rail',    sim_rail['v']))
     traj['grip_start'] = sim_gripper['v']
@@ -457,13 +482,37 @@ def step_trajectory():
     traj['last_step_t'] = now
     t = min(traj['elapsed'] / traj['duration'], 1.0)
 
-    q_interp = traj['q_start'] + t * (traj['q_end'] - traj['q_start'])
-    robot.q  = q_interp
+    if traj['mode'] == 'effector' and traj['cart_start'] is not None:
+        # ── Effector mode: Cartesian interpolation + IK per step ─────────────
+        # Axes that don't change (delta = 0) stay fixed automatically.
+        cs = traj['cart_start']
+        ce = traj['cart_end']
+        x_i     = cs['x']     + t * (ce['x']     - cs['x'])
+        y_i     = cs['y']     + t * (ce['y']     - cs['y'])
+        z_i     = cs['z']     + t * (ce['z']     - cs['z'])
+        roll_i  = cs['roll']  + t * (ce['roll']  - cs['roll'])
+        pitch_i = cs['pitch'] + t * (ce['pitch'] - cs['pitch'])
+        yaw_i   = cs['yaw']   + t * (ce['yaw']   - cs['yaw'])
+
+        T_ee_tgt = (
+            SE3(x_i/1000, y_i/1000, z_i/1000)
+            * SE3.RPY(np.deg2rad([roll_i, pitch_i, yaw_i]))
+            * tip_offset['se3'].inv()
+        )
+        q_sol, ok, *_ = robot.ik_LM(T_ee_tgt, q0=robot.q, ilimit=300)
+        if ok:
+            robot.q = q_sol
+        q_deg = np.rad2deg(robot.q)
+
+    else:
+        # ── Joint mode: linear interpolation in joint space ───────────────────
+        q_interp = traj['q_start'] + t * (traj['q_end'] - traj['q_start'])
+        robot.q  = q_interp
+        q_deg    = np.rad2deg(q_interp)
 
     sim_rail['v']    = traj['rail_start'] + t * (traj['rail_end'] - traj['rail_start'])
     sim_gripper['v'] = traj['grip_start'] + t * (traj['grip_end'] - traj['grip_start'])
 
-    q_deg = np.rad2deg(q_interp)
     for i, s in enumerate(joint_sliders):
         s.value = float(np.clip(q_deg[i], s.min, s.max))
     update_ik_sliders_from_fk()
