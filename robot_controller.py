@@ -57,6 +57,9 @@ from std_msgs.msg import Bool, Int8, String
 from moveit.planning import MoveItPy, PlanRequestParameters
 from moveit.core.robot_state import RobotState
 
+# moveit_commander — used for execute_effector_mode and effector pose feedback
+import moveit_commander
+
 # MoveIt2 services / messages
 from moveit_msgs.msg import RobotTrajectory
 from moveit_msgs.srv import GetCartesianPath
@@ -123,8 +126,9 @@ class RobotController(Node):
         super().__init__("robot_controller")
 
         # ── MoveIt2 ──────────────────────────────────────────────────────────
-        self._moveit = MoveItPy(node_name="robot_controller_moveit")
-        self._arm    = self._moveit.get_planning_component(self.ARM_GROUP)
+        self._moveit    = MoveItPy(node_name="robot_controller_moveit")
+        self._arm       = self._moveit.get_planning_component(self.ARM_GROUP)
+        self.move_group = moveit_commander.MoveGroupCommander(self.ARM_GROUP)
 
         # Service client: straight-line Cartesian path planning
         self._cartesian_cli = self.create_client(
@@ -144,9 +148,9 @@ class RobotController(Node):
         self._gripper : float       = 0.0          # percent
 
         # TCP offset (meters) — updated via /tool_config
-        self._tcp_x   : float       = 0.0
-        self._tcp_y   : float       = 0.0
-        self._tcp_z   : float       = 0.0
+        self.tcp_x    : float       = 0.0
+        self.tcp_y    : float       = 0.0
+        self.tcp_z    : float       = 0.0
 
         # ── Motion thread synchronisation ─────────────────────────────────────
         #   _resume_event  SET → run   CLEAR → paused (motion thread blocks here)
@@ -303,14 +307,14 @@ class RobotController(Node):
             self.get_logger().error(f"tool_config: JSON parse error — {exc}")
             return
 
-        self._tcp_x = float(cfg.get("tcp_x", 0.0)) / 1000.0   # mm → m
-        self._tcp_y = float(cfg.get("tcp_y", 0.0)) / 1000.0
-        self._tcp_z = float(cfg.get("tcp_z", 0.0)) / 1000.0
+        self.tcp_x = float(cfg.get("tcp_x", 0.0)) / 1000.0   # mm → m
+        self.tcp_y = float(cfg.get("tcp_y", 0.0)) / 1000.0
+        self.tcp_z = float(cfg.get("tcp_z", 0.0)) / 1000.0
 
         self.get_logger().info(
             f"TCP offset updated: "
-            f"({self._tcp_x * 1000:.1f}, {self._tcp_y * 1000:.1f}, "
-            f"{self._tcp_z * 1000:.1f}) mm"
+            f"({self.tcp_x * 1000:.1f}, {self.tcp_y * 1000:.1f}, "
+            f"{self.tcp_z * 1000:.1f}) mm"
         )
         # No /robot_status acknowledgement required per spec.
 
@@ -373,18 +377,28 @@ class RobotController(Node):
         """
         Publish current end-effector Cartesian pose at 10 Hz.
 
-        Pose is computed via MoveIt2 FK from the current robot state,
-        with the TCP offset applied.  Published even when idle.
-
         Topic: /end_effector_pose — std_msgs/String (JSON)
         Units: x, y, z in mm;  roll, pitch, yaw in degrees.
         """
-        pose = self._get_current_pose_mm_deg()
-        if pose is None:
-            return
-        msg = String()
-        msg.data = json.dumps(pose)
-        self._pub_ee_pose.publish(msg)
+        try:
+            from tf_transformations import euler_from_quaternion
+            pose_stamped = self.move_group.get_current_pose()
+            p = pose_stamped.pose.position
+            q = pose_stamped.pose.orientation
+            roll, pitch, yaw = euler_from_quaternion([q.x, q.y, q.z, q.w])
+            data = {
+                'x':     round(p.x * 1000.0, 2),
+                'y':     round(p.y * 1000.0, 2),
+                'z':     round(p.z * 1000.0, 2),
+                'roll':  round(math.degrees(roll),  3),
+                'pitch': round(math.degrees(pitch), 3),
+                'yaw':   round(math.degrees(yaw),   3),
+            }
+            msg = String()
+            msg.data = json.dumps(data)
+            self._pub_ee_pose.publish(msg)
+        except Exception as e:
+            self.get_logger().warn(f'effector_pose_timer_cb error: {e}')
 
     # ─────────────────────────────────────────────────────────────────────────
     # Public motion methods
@@ -447,109 +461,50 @@ class RobotController(Node):
 
     def execute_effector_mode(self, task: Dict[str, Any]) -> bool:
         """
-        Cartesian (end-effector) motion:
-          1. Use x/y/z/roll/pitch/yaw from task payload (with TCP offset applied)
-             Fallback to FK from j1–j6 hint if Cartesian fields are absent.
-          2. compute_cartesian_path → straight-line EE trajectory
-          3. Execute (fallback to OMPL set_pose_target if coverage < 90 %)
+        Cartesian (end-effector) motion via moveit_commander.
 
-        Parameters
-        ----------
-        task : dict
-            JSON task dict.
-
-        Returns
-        -------
-        bool  True on success.
+        Uses x/y/z/roll/pitch/yaw from the task payload directly.
+        Units: x/y/z mm → m,  roll/pitch/yaw deg → rad.
         """
-        speed_frac = self._clamp_speed(float(task.get("speed", 30)))
-        rail_mm    = float(task.get("rail", self._rail_mm))
+        from tf_transformations import quaternion_from_euler
 
-        # ── Step 1: build Cartesian target from task payload ──────────────────
-        # Primary: use x/y/z/roll/pitch/yaw directly (mm → m, deg → rad).
-        # Fallback: FK from j1–j6 hint if Cartesian fields are absent.
-        x_raw = task.get("x")
-        if x_raw is not None:
-            x_m   = float(x_raw)             / 1000.0   # mm → m
-            y_m   = float(task.get("y", 0.0)) / 1000.0
-            z_m   = float(task.get("z", 0.0)) / 1000.0
-            roll  = math.radians(float(task.get("roll",  0.0)))
-            pitch = math.radians(float(task.get("pitch", 0.0)))
-            yaw   = math.radians(float(task.get("yaw",   0.0)))
+        x_m     = task['x']     / 1000.0
+        y_m     = task['y']     / 1000.0
+        z_m     = task['z']     / 1000.0
+        roll_r  = math.radians(task['roll'])
+        pitch_r = math.radians(task['pitch'])
+        yaw_r   = math.radians(task['yaw'])
 
-            # Apply TCP offset (meters)
-            x_m += self._tcp_x
-            y_m += self._tcp_y
-            z_m += self._tcp_z
+        q = quaternion_from_euler(roll_r, pitch_r, yaw_r)
+        target_pose = Pose()
+        target_pose.position.x    = x_m
+        target_pose.position.y    = y_m
+        target_pose.position.z    = z_m
+        target_pose.orientation.x = q[0]
+        target_pose.orientation.y = q[1]
+        target_pose.orientation.z = q[2]
+        target_pose.orientation.w = q[3]
 
-            quat = self._euler_to_quat(roll, pitch, yaw)
-            target_pose = Pose()
-            target_pose.position    = Point(x=x_m, y=y_m, z=z_m)
-            target_pose.orientation = Quaternion(
-                x=quat[0], y=quat[1], z=quat[2], w=quat[3]
-            )
-        else:
-            # Fallback: FK from j1–j6 hint values
-            joints_rad  = self._task_to_radians(task)
-            target_pose = self._fk(joints_rad)
-            if target_pose is None:
-                self.get_logger().error(
-                    "[EffectorMode] No Cartesian target and FK failed "
-                    "— falling back to joint mode."
-                )
-                return self.execute_joint_mode(task)
+        self.move_group.set_pose_target(target_pose)
+
+        speed_fraction = max(0.01, min(1.0, task.get('speed', 50) / 100.0))
+        self.move_group.set_max_velocity_scaling_factor(speed_fraction)
+        self.move_group.set_max_acceleration_scaling_factor(speed_fraction * 0.5)
 
         self.get_logger().info(
-            f"[EffectorMode] "
-            f"xyz=({target_pose.position.x * 1000:.1f}, "
-            f"{target_pose.position.y * 1000:.1f}, "
-            f"{target_pose.position.z * 1000:.1f}) mm  "
-            f"speed={speed_frac * 100:.0f} %"
+            f"[EffectorMode] xyz=({x_m*1000:.1f}, {y_m*1000:.1f}, {z_m*1000:.1f}) mm  "
+            f"speed={speed_fraction*100:.0f} %"
         )
 
-        # ── Step 2: straight-line Cartesian path ─────────────────────────────
-        traj, fraction = self._compute_cartesian_path([target_pose], speed_frac)
+        success = self.move_group.go(wait=True)
+        self.move_group.stop()
+        self.move_group.clear_pose_targets()
 
-        if traj is not None and fraction >= 0.9:
-            self.get_logger().info(
-                f"[EffectorMode] Cartesian path coverage {fraction:.0%}."
-            )
-            ok = self._moveit.execute(traj, blocking=True, controllers=[])
-
-        else:
-            # Fallback: OMPL pose target (not strictly straight-line)
-            self.get_logger().warn(
-                f"[EffectorMode] Cartesian coverage {fraction:.0%} < 90 %  "
-                "→ falling back to OMPL set_pose_target."
-            )
-            ps = PoseStamped()
-            ps.header.frame_id = self.BASE_FRAME
-            ps.pose            = target_pose
-
-            params = PlanRequestParameters(self._moveit, "ompl")
-            params.planning_time                   = 5.0
-            params.max_velocity_scaling_factor     = speed_frac
-            params.max_acceleration_scaling_factor = speed_frac * 0.5
-
-            self._arm.set_start_state_to_current_state()
-            self._arm.set_goal_state(pose_stamped_msg=ps, pose_link=self.EE_LINK)
-            plan_result = self._arm.plan(single_plan_parameters=params)
-
-            if not plan_result:
-                self.get_logger().error("[EffectorMode] OMPL planning failed.")
-                return False
-
-            ok = self._moveit.execute(
-                plan_result.trajectory, blocking=True, controllers=[]
-            )
-
-        if not ok:
-            self.get_logger().error("[EffectorMode] Execution failed.")
+        if not success:
+            self.get_logger().error("[EffectorMode] go() failed.")
             return False
 
-        # Shadow joint angles are refreshed from MoveIt2 in the 10 Hz timer
-        # after Cartesian execution (no joints_rad available in primary branch).
-        self._move_rail(rail_mm, speed_frac)
+        self._move_rail(float(task.get('rail', self._rail_mm)), speed_fraction)
         return True
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -812,9 +767,9 @@ class RobotController(Node):
             transform: np.ndarray = state.get_global_link_transform(self.EE_LINK)
 
             # Translation (m → mm) + TCP offset
-            x_mm = float(transform[0, 3] + self._tcp_x) * 1000.0
-            y_mm = float(transform[1, 3] + self._tcp_y) * 1000.0
-            z_mm = float(transform[2, 3] + self._tcp_z) * 1000.0
+            x_mm = float(transform[0, 3] + self.tcp_x) * 1000.0
+            y_mm = float(transform[1, 3] + self.tcp_y) * 1000.0
+            z_mm = float(transform[2, 3] + self.tcp_z) * 1000.0
 
             # Rotation matrix → Euler RPY (degrees)
             if _HAS_SCIPY:
