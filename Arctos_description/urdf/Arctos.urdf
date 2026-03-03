@@ -1,0 +1,205 @@
+<?xml version="1.0" ?>
+<robot name="Arctos">
+
+  <!-- Base Link -->
+  <link name="base_link">
+    <inertial>
+      <origin xyz="2.827e-07 0.042242 0.054862" rpy="0 0 0"/>
+      <mass value="27.889"/>
+      <inertia ixx="0.142501" iyy="0.083035" izz="0.16612" ixy="-1e-06" iyz="-0.001774" ixz="0.0"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="/Users/dome/Desktop/RobotArm_Project/Arctos_description/meshes/base_link.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="/Users/dome/Desktop/RobotArm_Project/Arctos_description/meshes/base_link.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <!-- Joint 1 Link -->
+  <link name="J1_1">
+    <inertial>
+      <origin xyz="-1.297e-08 -0.004660 0.060932" rpy="0 0 0"/>
+      <mass value="15.113"/>
+      <inertia ixx="0.07326" iyy="0.084237" izz="0.070775" ixy="-0.0" iyz="0.002944" ixz="-0.0"/>
+    </inertial>
+    <visual>
+      <origin xyz="-0.0 -0.023029 -0.111" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="/Users/dome/Desktop/RobotArm_Project/Arctos_description/meshes/J1_1.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="-0.0 -0.023029 -0.111" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="/Users/dome/Desktop/RobotArm_Project/Arctos_description/meshes/J1_1.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <!-- Joint 2 Link -->
+  <link name="J2_1">
+    <inertial>
+      <origin xyz="-0.057050 0.006692 0.061821" rpy="0 0 0"/>
+      <mass value="17.861"/>
+      <inertia ixx="0.172429" iyy="0.185732" izz="0.054099" ixy="0.0" iyz="-0.009489" ixz="0.0"/>
+    </inertial>
+    <visual>
+      <origin xyz="-0.05713 -0.002855 -0.28806" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="/Users/dome/Desktop/RobotArm_Project/Arctos_description/meshes/J2_1.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="-0.05713 -0.002855 -0.28806" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="/Users/dome/Desktop/RobotArm_Project/Arctos_description/meshes/J2_1.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <!-- Joint 3 Link -->
+  <link name="J3_1">
+    <inertial>
+      <origin xyz="-0.042037 -0.037767 0.009992" rpy="0 0 0"/>
+      <mass value="8.761"/>
+      <inertia ixx="0.028147" iyy="0.011365" izz="0.026007" ixy="-0.000571" iyz="0.003914" ixz="0.000103"/>
+    </inertial>
+    <visual>
+      <origin xyz="-0.04313 -0.003782 -0.548929" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="/Users/dome/Desktop/RobotArm_Project/Arctos_description/meshes/J3_1.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="-0.04313 -0.003782 -0.548929" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="/Users/dome/Desktop/RobotArm_Project/Arctos_description/meshes/J3_1.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <!-- Joint 4 Link -->
+  <link name="J4_1">
+    <inertial>
+      <origin xyz="-0.000162 -0.048518 -0.000893" rpy="0 0 0"/>
+      <mass value="4.633"/>
+      <inertia ixx="0.017799" iyy="0.010651" izz="0.023098" ixy="0.0" iyz="-0.000142" ixz="-0.0"/>
+    </inertial>
+    <visual>
+      <origin xyz="0.001709 0.121908 -0.570126" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="/Users/dome/Desktop/RobotArm_Project/Arctos_description/meshes/J4_1.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0.001709 0.121908 -0.570126" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="/Users/dome/Desktop/RobotArm_Project/Arctos_description/meshes/J4_1.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <!-- Joint 5 Link -->
+  <link name="J5_1">
+    <inertial>
+      <origin xyz="0.040181 -0.016811 7.445e-06" rpy="0 0 0"/>
+      <mass value="0.956"/>
+      <inertia ixx="0.0016" iyy="0.000788" izz="0.00136" ixy="2e-06" iyz="-1e-06" ixz="0.0"/>
+    </inertial>
+    <visual>
+      <origin xyz="0.04199 0.254971 -0.568148" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="/Users/dome/Desktop/RobotArm_Project/Arctos_description/meshes/J5_1.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0.04199 0.254971 -0.568148" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="/Users/dome/Desktop/RobotArm_Project/Arctos_description/meshes/J5_1.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <!-- Joint 6 Link -->
+  <link name="J6_1">
+    <inertial>
+      <origin xyz="0.001160 -0.004888 2.174e-05" rpy="0 0 0"/>
+      <mass value="0.204"/>
+      <inertia ixx="0.000169" iyy="0.000326" izz="0.000169" ixy="-0.0" iyz="0.0" ixz="-0.0"/>
+    </inertial>
+    <visual>
+      <origin xyz="0.00303 0.313516 -0.568106" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="/Users/dome/Desktop/RobotArm_Project/Arctos_description/meshes/J6_1.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0.00303 0.313516 -0.568106" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="/Users/dome/Desktop/RobotArm_Project/Arctos_description/meshes/J6_1.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <!-- Revolute 1: base_link -> J1_1, axis Z -->
+  <joint name="Revolute_1" type="revolute">
+    <origin xyz="0.0 0.023029 0.111" rpy="0 0 0"/>
+    <parent link="base_link"/>
+    <child link="J1_1"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-3.14159" upper="3.14159" effort="100" velocity="2.0"/>
+  </joint>
+
+  <!-- Revolute 2: J1_1 -> J2_1, axis X -->
+  <joint name="Revolute_2" type="revolute">
+    <origin xyz="0.05713 -0.020174 0.17706" rpy="0 0 0"/>
+    <parent link="J1_1"/>
+    <child link="J2_1"/>
+    <axis xyz="1 0 0"/>
+    <limit lower="-3.14159" upper="3.14159" effort="100" velocity="2.0"/>
+  </joint>
+
+  <!-- Revolute 3: J2_1 -> J3_1, axis -X -->
+  <joint name="Revolute_3" type="revolute">
+    <origin xyz="-0.014 0.000927 0.260869" rpy="0 0 0"/>
+    <parent link="J2_1"/>
+    <child link="J3_1"/>
+    <axis xyz="-1 0 0"/>
+    <limit lower="-3.14159" upper="3.14159" effort="100" velocity="2.0"/>
+  </joint>
+
+  <!-- Revolute 4: J3_1 -> J4_1, axis Y -->
+  <joint name="Revolute_4" type="revolute">
+    <origin xyz="-0.044839 -0.12569 0.021197" rpy="0 0 0"/>
+    <parent link="J3_1"/>
+    <child link="J4_1"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-3.14159" upper="3.14159" effort="100" velocity="2.0"/>
+  </joint>
+
+  <!-- Revolute 5: J4_1 -> J5_1, axis X -->
+  <joint name="Revolute_5" type="revolute">
+    <origin xyz="-0.040281 -0.133063 -0.001978" rpy="0 0 0"/>
+    <parent link="J4_1"/>
+    <child link="J5_1"/>
+    <axis xyz="1 0 0"/>
+    <limit lower="-3.14159" upper="3.14159" effort="100" velocity="2.0"/>
+  </joint>
+
+  <!-- Revolute 6: J5_1 -> J6_1, axis -Y -->
+  <joint name="Revolute_6" type="revolute">
+    <origin xyz="0.03896 -0.058545 -0.000042" rpy="0 0 0"/>
+    <parent link="J5_1"/>
+    <child link="J6_1"/>
+    <axis xyz="0 -1 0"/>
+    <limit lower="-3.14159" upper="3.14159" effort="100" velocity="2.0"/>
+  </joint>
+
+</robot>

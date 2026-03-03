@@ -1,0 +1,7 @@
+roboticstoolbox-python
+swift-sim
+spatialmath-python
+spatialgeometry
+"numpy<2"
+matplotlib
+websocket-client
