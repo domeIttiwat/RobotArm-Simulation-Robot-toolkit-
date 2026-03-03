@@ -202,6 +202,18 @@ class RobotUIBridge:
             "velocity": [0.0] * 6,
         })
 
+    def publish_effector_pose(self, x: float, y: float, z: float,
+                              roll: float, pitch: float, yaw: float):
+        """Publish /end_effector_pose as std_msgs/String (JSON, mm + degrees)."""
+        self.publish("/end_effector_pose", {"data": json.dumps({
+            "x":     round(x, 2),
+            "y":     round(y, 2),
+            "z":     round(z, 2),
+            "roll":  round(roll,  3),
+            "pitch": round(pitch, 3),
+            "yaw":   round(yaw,   3),
+        })})
+
     @property
     def is_connected(self) -> bool:
         return self.connected and self._ws is not None and self._ws.sock is not None
@@ -750,13 +762,18 @@ while True:
     lbl_ws.desc     = f"rosbridge: {'connected' if bridge.is_connected else 'disconnected'}"
     lbl_safety.desc = f"Safety: {_SAFETY_LABELS[sim_safety_status['v']]}"
 
-    # ── Publish joint states every 100 ms ──
+    # ── Publish joint states + effector pose every 100 ms ──
     if now - last_js_pub_t['t'] >= JS_PUBLISH_INTERVAL:
         last_js_pub_t['t'] = now
         bridge.publish_joint_states(
             q_deg=list(q_deg.astype(float)),
             rail=sim_rail['v'],
             gripper=sim_gripper['v'],
+        )
+        rpy_tip = np.rad2deg(T_tip.rpy())
+        bridge.publish_effector_pose(
+            x=float(tp[0]), y=float(tp[1]), z=float(tp[2]),
+            roll=float(rpy_tip[0]), pitch=float(rpy_tip[1]), yaw=float(rpy_tip[2]),
         )
 
     print(f"\r{tp[0]:>+10.1f} {tp[1]:>+10.1f} {tp[2]:>+10.1f}  mm", end="", flush=True)
