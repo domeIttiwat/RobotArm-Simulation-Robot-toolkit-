@@ -339,6 +339,7 @@ def save_position():
     data = []
     if os.path.exists(SAVE_FILE):
         with open(SAVE_FILE, 'r') as f:
+            
             try:
                 data = json.load(f)
             except Exception:
