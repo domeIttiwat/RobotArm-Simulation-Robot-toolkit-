@@ -38,12 +38,12 @@ original_colors = {}
 for link in robot.links:
     original_colors[link.name] = [tuple(shape.color) for shape in link.geometry]
 
-# Tip Axes: offset 70mm ตามแกน -Y ของ EE
-TIP_OFFSET     = SE3(0, -0.07, 0)
-TIP_OFFSET_INV = TIP_OFFSET.inv()
+# Tip Axes: TCP offset — updated dynamically via /tool_config from the UI
+# Default (0,0,0): no offset until the UI sends calibration data
+tip_offset = {'se3': SE3(0, 0, 0)}   # updated in handle_tool_config()
 
 T_ee_init  = robot.fkine(robot.q)
-T_tip_init = T_ee_init * TIP_OFFSET
+T_tip_init = T_ee_init * tip_offset['se3']
 tip_axes   = Axes(0.05, pose=T_tip_init)
 env.add(tip_axes)
 
@@ -133,6 +133,7 @@ class RobotUIBridge:
         ("/stop_execution",     "std_msgs/Bool"),
         ("/teach_mode",         "std_msgs/Bool"),
         ("/safety_status",      "std_msgs/Int8"),
+        ("/tool_config",        "std_msgs/String"),
     ]
 
     # Topics this node advertises (publishes) to the web service.
@@ -152,6 +153,7 @@ class RobotUIBridge:
         self.on_stop               = None
         self.on_teach_mode         = None
         self.on_safety_status      = None
+        self.on_tool_config        = None
 
     # ── Public API ──────────────────────────────────────────
 
@@ -269,6 +271,14 @@ class RobotUIBridge:
             if self.on_safety_status:
                 self.on_safety_status(status)
 
+        elif topic == "/tool_config":
+            try:
+                cfg = json.loads(msg["msg"]["data"])
+                if self.on_tool_config:
+                    self.on_tool_config(cfg)
+            except Exception:
+                pass
+
 
 # ── Create bridge instance ────────────────────────────────────
 bridge = RobotUIBridge(WS_URL)
@@ -279,7 +289,7 @@ bridge = RobotUIBridge(WS_URL)
 # ============================================================
 
 def update_ik_sliders_from_fk():
-    T_tip = robot.fkine(robot.q) * TIP_OFFSET
+    T_tip = robot.fkine(robot.q) * tip_offset['se3']
     tp    = T_tip.t * 1000
     rpy   = np.rad2deg(T_tip.rpy())
     for key, val, mn, mx in [
@@ -295,7 +305,7 @@ def solve_ik():
     T_ee_target = (
         SE3(target['x'] / 1000, target['y'] / 1000, target['z'] / 1000)
         * SE3.RPY(np.deg2rad([target['rx'], target['ry'], target['rz']]))
-        * TIP_OFFSET_INV
+        * tip_offset['se3'].inv()
     )
     q_sol, ok, *_ = robot.ik_LM(T_ee_target, q0=robot.q, ilimit=500)
     if not ok:
@@ -339,7 +349,7 @@ def make_target_cb(key):
 
 def save_position():
     T_ee  = robot.fkine(robot.q)
-    T_tip = T_ee * TIP_OFFSET
+    T_tip = T_ee * tip_offset['se3']
     tp    = T_tip.t * 1000
     rpy   = np.rad2deg(T_tip.rpy())
     entry = {
@@ -493,6 +503,15 @@ def handle_teach_mode(enabled: bool):
     teach_mode_active['v'] = enabled
 
 
+def handle_tool_config(cfg: dict):
+    """Update TCP offset from UI calibration data (mm → m → SE3)."""
+    x = float(cfg.get('tcp_x', 0.0)) / 1000.0
+    y = float(cfg.get('tcp_y', 0.0)) / 1000.0
+    z = float(cfg.get('tcp_z', 0.0)) / 1000.0
+    tip_offset['se3'] = SE3(x, y, z)
+    print(f"\n[TCP] offset updated: ({x*1000:.1f}, {y*1000:.1f}, {z*1000:.1f}) mm")
+
+
 # ============================================================
 # Safety status helpers
 # ============================================================
@@ -563,6 +582,7 @@ bridge.on_goto_position      = handle_goto_position
 bridge.on_stop               = handle_stop
 bridge.on_teach_mode         = handle_teach_mode
 bridge.on_safety_status      = handle_safety_status
+bridge.on_tool_config        = handle_tool_config
 
 
 # ============================================================
@@ -612,7 +632,7 @@ def action_cb(idx):
         robot.q = q_zero.copy()
         for s in joint_sliders:
             s.value = 0.0
-        T_tip0 = robot.fkine(q_zero) * TIP_OFFSET
+        T_tip0 = robot.fkine(q_zero) * tip_offset['se3']
         tp0    = T_tip0.t * 1000
         rpy0   = np.rad2deg(T_tip0.rpy())
         for key, val, mn, mx in [
@@ -747,7 +767,7 @@ while True:
 
     # ── FK / display ──
     T_ee  = robot.fkine(robot.q)
-    T_tip = T_ee * TIP_OFFSET
+    T_tip = T_ee * tip_offset['se3']
     tip_axes.T = T_tip
 
     q_deg = np.rad2deg(robot.q)
